@@ -248,11 +248,11 @@ class Player {
     }
 
     set Message(value) {
-        this.channel = value
+        this.message = value
     }
 
     get Message() {
-        return this.channel
+        return this.message
     }
 
     get Actions() {
