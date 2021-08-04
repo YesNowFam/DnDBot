@@ -152,7 +152,8 @@ var a = {
 
 // #region Player Class
 class Player {
-    constructor(user, ac, hp, stats, level, weaponArray, name, initMod, attacks) {
+    constructor(id, user, ac, hp, stats, level, weaponArray, name, initMod, attacks) {
+        this.id = id
         this.user = user
         this.channel = undefined
         this.message = undefined
@@ -173,7 +174,7 @@ class Player {
         this.attackAgainstAdv = a.normal
         this.initAdv = a.normal
         this.actions = 1
-        this.bonusActions = 1
+        this.actionsBonus = 1
 
         let mods = []
         for (const stat of stats) {
@@ -235,7 +236,7 @@ class Player {
             stats[i] = parseInt(stats[i][0])
         }
 
-        return new Player(user, ac, hp, stats, level, weaponArray, name, initMod, attacks)
+        return new Player(id, user, ac, hp, stats, level, weaponArray, name, initMod, attacks)
     }
 
     // #region Get and set
@@ -259,8 +260,8 @@ class Player {
         return this.actions
     }
 
-    get BonusActions() {
-        return this.bonusActions
+    get ActionsBonus() {
+        return this.actionsBonus
     }
 
     set Hp(value) {
@@ -322,6 +323,10 @@ class Player {
     get User() {
         return this.user
     }
+    
+    get Id() {
+        return this.id
+    }
 
     get Heart() {
         return this.hp / this.hpMax > 0.5 ? ':green_heart:' :
@@ -338,6 +343,14 @@ class Player {
             }
         }
         return weaponArray
+    }
+
+    updateChannelEmbed() {
+        const embed = new Discord.MessageEmbed().setTitle(`${this.name} :vampire_tone5:`)
+        embed.addField('Health', `${this.Heart} ${this.hp} HP`)
+        embed.addField('Actions', `${this.actions} left`)
+        embed.addField('Bonus Actions', `${this.actionsBonus} left`)
+        this.Message.edit({ embed: embed })
     }
 
     updateConditions(condition) {
@@ -475,7 +488,7 @@ function getCritImage()
 
 // #region Embed functions
 function getCharforgeEmbed(id) {
-    const embed = new Discord.MessageEmbed().setTitle('```Registered```')
+    const embed = new Discord.MessageEmbed().setTitle('```Registering```')
     embed.addField('```' + id + '```', 'Sheet ID')
 
     return embed
@@ -486,7 +499,8 @@ function getStatsEmbed(player, statLabels = ['str', 'dex', 'con', 'int', 'wis', 
 
     for (var i = 0; i < 6; i++) {
         embed.addField(statLabels[i],
-            `**${player.Stats[i]}** (+${player.Mods[i]})`
+            `**${player.Stats[i]}**`
+            + (player.Mods[i] < 0 ? ' ('+ player.Mods[i].toString() : ' (+' + player.Mods[i].toString()) + ')' 
             , true)
     }
 
@@ -524,12 +538,26 @@ function getDamageEmbed(damage) {
     return embed
 }
 
-function updateChannelEmbed(player) {
-    const embed = new Discord.MessageEmbed().setTitle(`${player.Name} :vampire_tone5:`)
-    embed.addField('Health', `${player.Heart} ${player.Hp} HP`)
-    embed.addField('Actions', `${player.Actions} left`)
-    embed.addField('Bonus Actions', `${player.BonusActions} left`)
-    player.Message.edit({ embed: embed })
+async function createChannelEmbed(guild, parent, player) {
+    await guild.channels.create(player.Name, {
+        type: 'text',
+        parent,
+        permissionOverwrites: [
+            {id: guild.id, deny: ['VIEW_CHANNEL']},
+            {id: player.User, allow: ['VIEW_CHANNEL']},
+        ]
+    }).then(channel => {
+        player.Channel = channel
+        channel.send(new Discord.MessageEmbed()
+                        .setTitle('Sample Text')
+                        .addField('Lorem ispum', 'Dolor'))
+        .then(msg => {
+            console.log(player.Name)
+            player.Message = msg
+            msg.pin()
+            player.updateChannelEmbed()
+        })
+    })
 }
 // #endregion
 
@@ -568,9 +596,13 @@ const blank = (interaction) => {
         },
     })
 }
+
+function pingUser(channel, id, content) {
+    channel.send(`<@${id}> ${content}`)
+}
 // #endregion
 
-// #region Find users
+// #region Charforge functions
 async function getUserArrayFromSheet(sheets, auth) {
 
     let users = []
@@ -620,7 +652,8 @@ client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`)
 
     // #region Slash commands
-    getApp(guildId).commands.post({
+    const app = getApp(guildId)
+    app.commands.post({
         data:
         {
             name: 'charforge',
@@ -637,7 +670,7 @@ client.on('ready', async () => {
         }
     })
 
-    getApp(guildId).commands.post({
+    app.commands.post({
         data:
         {
             name: 'createchannels',
@@ -645,7 +678,15 @@ client.on('ready', async () => {
         }
     })
 
-    getApp(guildId).commands.post({
+    app.commands.post({
+        data:
+        {
+            name: 'setchannels',
+            description: 'binds characters to a character category already created',
+        }
+    })
+
+    app.commands.post({
         data:
         {
             name: 'stats',
@@ -653,7 +694,7 @@ client.on('ready', async () => {
         }
     })
 
-    getApp(guildId).commands.post({
+    app.commands.post({
         data:
         {
             name: 'attack',
@@ -670,7 +711,7 @@ client.on('ready', async () => {
         }
     })
 
-    getApp(guildId).commands.post({
+    app.commands.post({
         data:
         {
             name: 'combat',
@@ -690,6 +731,8 @@ client.on('ready', async () => {
 
     let combat = false
     let entityArray = []
+    var channels = client.guilds.cache.get(guildId).channels.cache
+    var charCategory = channels.find(s => s.type == 'category' && s.name == 'Characters')
     var initMessage
 
     // #region Pre-processing users
@@ -697,13 +740,21 @@ client.on('ready', async () => {
     var { users: userArray, ids } = await getUserArrayFromSheet(mainSheet, mainAuth)
 
     for (var i = 0; i < userArray.length; i++) {
-        entityArray.push(await Player.build(famSheet, famAuth, ids[i], userArray[i]))
+        var player = await Player.build(famSheet, famAuth, ids[i], userArray[i])
+        if(charCategory) {
+            player.Channel = channels.find(s => s.name == player.Name.toLowerCase())
+            player.Channel.messages.fetch().then(messages => {
+                player.Message = messages.find(m => m.author.id == client.user.id && m.pinned)
+            })
+            player.Channel.send('sup')
+        }
+        entityArray.push(player)
     }
 
     /*let e = '6969969696969696'
     playerObject[e] = await Player.build(famSheet, famAuth, '1frU1FBZrlTrA7unxkl6tGFDTEciHsVdVbOeR-u9mzYE')
     */
-    console.log(entityArray)
+    console.log('done')
     // #endregion
 
     // #region Discord interaction
@@ -722,68 +773,69 @@ client.on('ready', async () => {
         }
         // #endregion
 
-        let user = interaction.member.user.id
+        let user = interaction.member.user
         let channel = client.channels.cache.get(interaction.channel_id)
         let guild = client.guilds.cache.get(interaction.guild_id)
         let gm = interaction.member.roles.find(r => guild.roles.cache.get(r).name == 'GM')
-        let player = entityArray.find(e => e.User == user)
+        let player = entityArray.find(e => e.User == user.id)
 
         // #region Charforge
         if (command == 'charforge') {
             reply(interaction, getCharforgeEmbed(args.id))
 
-            player = await Player.build(famSheet, famAuth, args.id, user)
+            try {
+                var newPlayer = await Player.build(famSheet, famAuth, args.id, user.id)
+                var duplicatePlayer = entityArray.find(e => e.Id == newPlayer.Id && e.User != newPlayer.User)
+                if (!duplicatePlayer) {
+                    //no instance of user in main sheet
+                    if (!userArray.includes(user.id)) {
+                        await sheetAppend(mainSheet, mainAuth, mainId, 'A1:B1', [user.id, args.id])
+                        userArray.push(user.id)
+                    }
+                    //instance of user in main sheet
+                    else {
+                        await sheetUpdate(mainSheet, mainAuth, mainId,
+                            `B${userArray.indexOf(user.id) + 1}`, [args.id])
+                        entityArray.splice(entityArray.findIndex(e => e.User == user.id), 1)
+                    }
+
+                    if (charCategory) {
+                        player.Channel.delete()
+                        createChannelEmbed(guild, charCategory, newPlayer)
+                    }
+
+                    if (combat) {
+                        newPlayer.Init = newPlayer.rollInit()
+                        entityArray.push(newPlayer)
+                        updateEntityOrder(entityArray)
+                    }
+                    else {
+                        entityArray.push(newPlayer)
+                    }
+                    pingUser(channel, user.id, '`Registered!`')
+
+                    console.log(entityArray.length)
+                }
+                else {
+                    pingUser(channel, user.id, '`Two players cannot have the same character...`')
+                }
+
+            } 
+            catch(err) {
+                pingUser(channel, user.id, '`'+err+'`')
+            }
             
-            //no instance of user in main sheet
-            if (!userArray.includes(user)) {
-                await sheetAppend(mainSheet, mainAuth, mainId, 'A1:B1', [user, args.id])
-                userArray.push(user)
-                entityArray.push(player)
-            }
-            //instance of user in main sheet
-            else {
-                await sheetUpdate(mainSheet, mainAuth, mainId,
-                    `B${userArray.indexOf(user) + 1}`, [args.id])
-                entityArray.splice(entityArray.findIndex(e => e.User == user), 1)
-            }
-
-            if (combat) {
-                player.Init = player.rollInit()
-                entityArray.push(player)
-                entityArray = updateEntityOrder(entityArray)
-            }
-            else {
-                entityArray.push(player)
-            }
-
-            console.log(entityArray)
         }
 
         else if (command == 'createchannels') {
             guild.channels.create('Characters', {
                 type: 'category',
             }).then(parent => {
-                guild.members.fetch().then(members => {
-                    for(const e of entityArray) {
+                charCategory = parent
+                guild.members.fetch().then(async (members) => {
+                    for await (var e of entityArray) {
                         if (members.find(m => m.user.id == e.User)) {
-                            guild.channels.create(e.Name, {
-                                type: 'text',
-                                parent,
-                                permissionOverwrites: [
-                                    {id: guild.id, deny: ['VIEW_CHANNEL']},
-                                    {id: e.User, allow: ['VIEW_CHANNEL']},
-                                ]
-                            }).then(channel => {
-                                e.Channel = channel
-                                channel.send(new Discord.MessageEmbed()
-                                                .setTitle('Sample Text')
-                                                .addField('Lorem ispum', 'Dolor'))
-                                .then(msg => {
-                                    e.Message = msg
-                                    msg.pin()
-                                    updateChannelEmbed(e)
-                                })
-                            })
+                            await createChannelEmbed(guild, parent, e)
                         }
                     }
                 })
@@ -791,7 +843,8 @@ client.on('ready', async () => {
         }
         // #endregion
 
-        else if (player != undefined) {
+        else if (player && charCategory) {
+
             // #region Stats
             if (command == 'stats') {
                 reply(interaction, getStatsEmbed(player))
@@ -809,7 +862,7 @@ client.on('ready', async () => {
                             for (const e of entityArray) {
                                 e.Init = e.rollInit()
                             }
-                            entityArray = updateEntityOrder(entityArray)
+                            updateEntityOrder(entityArray)
                             entityArray[0].Init = 8
                             entityArray[1].Init = 8
 
@@ -855,7 +908,7 @@ client.on('ready', async () => {
 
             else if (command == 'attack') {
                 if (combat) {
-                    if (entityArray[args.target - 1] != undefined) {
+                    if (entityArray[args.target - 1]) {
                         var target = entityArray[args.target - 1]
                         var toHit = player.rollAttack(target.AttackAgainstAdv)
 
@@ -891,6 +944,12 @@ client.on('ready', async () => {
         }
         else {
             reply(interaction, '`You must have a character...`')
+        }
+
+        for(const e of entityArray) {
+            if (e.Channel) {
+                e.updateChannelEmbed()
+            }
         }
     })
     // #endregion
