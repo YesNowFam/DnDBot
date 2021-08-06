@@ -152,7 +152,7 @@ var a = {
 
 // #region Player Class
 class Player {
-    constructor(id, user, ac, hp, stats, level, weaponArray, name, initMod, attackNum) {
+    constructor(id, user, ac, hp, stats, level, weaponArray, name, initMod, attackCount) {
         // #region this
         this.id = id
         this.user = user
@@ -169,13 +169,13 @@ class Player {
         this.initMod = initMod
         this.init = 0
         this.conditions = []
-        this.attackMax = attackNum
-        this.attackNum = attackNum
+        this.attackMax = attackCount
+        this.attackCount = attackCount
         this.attackAdv = a.normal
         this.attackAgainstAdv = a.normal
         this.initAdv = a.normal
-        this.actions = 1
-        this.actionsBonus = 1
+        this.actionCount = 1
+        this.actionBonus = 1
         this.turn = false
         // #endregion
 
@@ -192,7 +192,7 @@ class Player {
         const ac = parseInt((await sheetGet(sheets, auth, id, 'Equipment!D46'))[0][0])
         const hp = parseInt((await sheetGet(sheets, auth, id, 'Online Sheet!L52'))[0][0])
         const initMod = parseInt((await sheetGet(sheets, auth, id, 'Online Sheet!BE52'))[0][0])
-        const attackNum = parseInt((await sheetGet(sheets, auth, id, 'Online Sheet!AM59'))[0][0])
+        const attackCount = parseInt((await sheetGet(sheets, auth, id, 'Online Sheet!AM59'))[0][0])
 
         const name = (await sheetGet(sheets, auth, id, 'Start!J38'))[0][0]
         const level = parseInt((await sheetGet(sheets, auth, id, 'Start!C53'))[0][0])
@@ -239,7 +239,7 @@ class Player {
             stats[i] = parseInt(stats[i][0])
         }
 
-        return new Player(id, user, ac, hp, stats, level, weaponArray, name, initMod, attackNum)
+        return new Player(id, user, ac, hp, stats, level, weaponArray, name, initMod, attackCount)
     }
 
     // #region Get and set
@@ -259,35 +259,35 @@ class Player {
         return this.message
     }
 
-    set AttackNum(value) {
+    set AttackCount(value) {
         if (value > 0) {
-            this.Actions -= 1
+            this.ActionCount -= 1
         }
-        this.attackNum = value
+        this.attackCount = value
     }
 
-    get AttackNum() {
-        return this.attackNum
+    get AttackCount() {
+        return this.attackCount
     }
 
-    set Actions(value) {
-        this.actions = value
+    set ActionCount(value) {
+        this.actionCount = value
         if (this.turn) {
-            this.turn = (value == 0 && this.actionsBonus == 0)
+            this.turn = (value == 0 && this.actionBonus == 0)
         }
     }
 
-    get Actions() {
-        return this.actions
+    get ActionCount() {
+        return this.actionCount
     }
 
-    set ActionsBonus(value) {
-        this.actionsBonus = value
-        this.turn = (value == 0 && this.actions == 0)
+    set ActionBonus(value) {
+        this.actionBonus = value
+        this.turn = (value == 0 && this.actionCount == 0)
     }
 
-    get ActionsBonus() {
-        return this.actionsBonus
+    get ActionBonus() {
+        return this.actionBonus
     }
 
     set Turn(value) {
@@ -384,8 +384,8 @@ class Player {
     updateChannelEmbed() {
         const embed = new Discord.MessageEmbed().setTitle(`${this.name} :vampire_tone5:`)
         embed.addField('Health', `${this.Heart} ${this.hp} HP`)
-        embed.addField('Actions', `${this.actions} left`)
-        embed.addField('Bonus Actions', `${this.actionsBonus} left`)
+        embed.addField('Actions', `${this.actionCount} left`)
+        embed.addField('Bonus Actions', `${this.actionBonus} left`)
         this.Message.edit({ embed: embed })
     }
 
@@ -401,9 +401,9 @@ class Player {
     }
 
     resetActions() {
-        this.actions = 1
-        this.actionsBonus = 1
-        this.attackNum = this.attackMax
+        this.actionCount = 1
+        this.actionBonus = 1
+        this.attackCount = this.attackMax
     }
 
     rollAttack(targetAdv) {
@@ -920,7 +920,7 @@ client.on('ready', async () => {
                 else {
                     // #region Action commands
                     if (command == 'attack') {
-                        entity.AttackNum -= 1
+                        entity.AttackCount -= 1
                         
                         if (entityArray[args.target - 1]) {
                             var target = entityArray[args.target - 1]
